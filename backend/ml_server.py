@@ -204,19 +204,21 @@ def detect_drowsiness():
 
 @app.route('/models', methods=['GET'])
 def list_models():
-    """List available models from the backend directory"""
+    """List available models from the models directory"""
     try:
-        # Look for model files in the backend directory (current directory)
-        backend_dir = os.path.dirname(os.path.abspath(__file__))
+        # Look for model files in the models directory
+        models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app', 'models')
         model_files = []
         
-        for file in os.listdir(backend_dir):
-            if file.endswith(('.keras', '.h5')):
-                model_files.append({
-                    'name': file,
-                    'path': os.path.join(backend_dir, file),
-                    'size': os.path.getsize(os.path.join(backend_dir, file))
-                })
+        if os.path.exists(models_dir):
+            for file in os.listdir(models_dir):
+                if file.endswith(('.keras', '.h5')):
+                    model_path = os.path.join(models_dir, file)
+                    model_files.append({
+                        'name': file,
+                        'path': model_path,
+                        'size': os.path.getsize(model_path)
+                    })
         
         return jsonify({
             'models': model_files,
@@ -256,10 +258,10 @@ def get_alertness_level(confidence):
         return 'Very Drowsy'
 
 if __name__ == '__main__':
-    # Try to load the default model on startup from backend directory
-    backend_dir = os.path.dirname(os.path.abspath(__file__))
+    # Try to load the default model on startup from models directory
+    models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app', 'models')
     
-    # Try to find a suitable default model in the backend directory
+    # Try to find a suitable default model in the models directory
     default_models = [
         'drowsiness_mobilenet_model.h5',  # Smallest and fastest
         'best_mobilenet_model.h5',
@@ -273,7 +275,7 @@ if __name__ == '__main__':
     
     default_model_loaded = False
     for model_name in default_models:
-        default_model_path = os.path.join(backend_dir, model_name)
+        default_model_path = os.path.join(models_dir, model_name)
         if os.path.exists(default_model_path):
             logger.info(f"Loading default model: {default_model_path}")
             if detector.load_model(default_model_path):
@@ -283,7 +285,7 @@ if __name__ == '__main__':
                 logger.warning(f"Failed to load model: {default_model_path}")
     
     if not default_model_loaded:
-        logger.warning("No suitable default model found in backend directory")
+        logger.warning("No suitable default model found in models directory")
     
     # Run the Flask app
     app.run(host='0.0.0.0', port=5000, debug=True) 
