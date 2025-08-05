@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState } from 'react';
 import mlService from '../services/mlService';
+import FaceDetectionOverlay from './FaceDetectionOverlay';
 
 export default function CameraFeed({ isDetecting, onConfidenceUpdate }) {
   const videoRef = useRef(null);
@@ -9,6 +10,7 @@ export default function CameraFeed({ isDetecting, onConfidenceUpdate }) {
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isModelLoaded, setIsModelLoaded] = useState(false);
+  const [faceDetection, setFaceDetection] = useState(null);
 
   useEffect(() => {
     if (isDetecting && !stream) {
@@ -28,6 +30,13 @@ export default function CameraFeed({ isDetecting, onConfidenceUpdate }) {
     };
     
     initializeML();
+  }, []);
+
+  // Set up face detection callback
+  useEffect(() => {
+    mlService.setFaceDetectionCallback((faceData) => {
+      setFaceDetection(faceData);
+    });
   }, []);
 
   const startCamera = async () => {
@@ -66,6 +75,8 @@ export default function CameraFeed({ isDetecting, onConfidenceUpdate }) {
     }
     // Stop ML detection
     mlService.stopDetection();
+    // Clear face detection data
+    setFaceDetection(null);
   };
 
   // Cleanup on unmount
@@ -86,16 +97,16 @@ export default function CameraFeed({ isDetecting, onConfidenceUpdate }) {
     <div className="relative">
       {/* Camera Container */}
       <div className="relative bg-gray-900 rounded-lg overflow-hidden aspect-video">
-                 {isLoading && (
-           <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75 z-10">
-             <div className="text-center">
-               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-               <p className="text-white">
-                 {!isModelLoaded ? 'Loading ML Model...' : 'Starting camera...'}
-               </p>
-             </div>
-           </div>
-         )}
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75 z-10">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+              <p className="text-white">
+                {!isModelLoaded ? 'Loading ML Model...' : 'Starting camera...'}
+              </p>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75 z-10">
@@ -134,20 +145,24 @@ export default function CameraFeed({ isDetecting, onConfidenceUpdate }) {
           className="w-full h-full object-cover"
         />
 
-        {/* Detection Overlay */}
+        {/* Face Detection Overlay */}
+        <FaceDetectionOverlay 
+          faceDetection={faceDetection}
+          videoElement={videoRef.current}
+          isDetecting={isDetecting}
+        />
+
+        {/* Status Indicators */}
         {isDetecting && stream && (
-          <div className="absolute inset-0 pointer-events-none">
-            {/* Face Detection Box (simulated) */}
-            <div className="absolute top-1/4 left-1/4 w-1/2 h-1/2 border-2 border-green-400 rounded-lg">
-              <div className="absolute -top-8 left-0 bg-green-400 text-white px-2 py-1 rounded text-xs">
-                Face Detected
-              </div>
-            </div>
-            
-            {/* Status Indicator */}
-            <div className="absolute top-4 right-4 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-medium">
-              Active
-            </div>
+          <div className="absolute top-4 right-4 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-medium z-20">
+            Active
+          </div>
+        )}
+
+        {/* Face Detection Status */}
+        {isDetecting && faceDetection && faceDetection.success && (
+          <div className="absolute top-4 left-4 bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-medium z-20">
+            {faceDetection.faces_detected || 0} Face{faceDetection.faces_detected !== 1 ? 's' : ''} Detected
           </div>
         )}
       </div>
@@ -161,6 +176,16 @@ export default function CameraFeed({ isDetecting, onConfidenceUpdate }) {
               {isDetecting ? 'Recording' : 'Stopped'}
             </span>
           </div>
+          
+          {/* Face Detection Status */}
+          {isDetecting && faceDetection && (
+            <div className="flex items-center space-x-2">
+              <div className={`w-3 h-3 rounded-full ${faceDetection.success ? 'bg-blue-500' : 'bg-gray-400'}`}></div>
+              <span className="text-sm text-gray-600">
+                Face Detection: {faceDetection.success ? 'Active' : 'Inactive'}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex space-x-2">
@@ -182,6 +207,10 @@ export default function CameraFeed({ isDetecting, onConfidenceUpdate }) {
       {/* Camera Info */}
       <div className="mt-2 text-xs text-gray-500">
         <p>Resolution: 640x480 | FPS: 30 | Status: {isDetecting ? 'Active' : 'Inactive'}</p>
+        {faceDetection && faceDetection.detection_stats && (
+          <p>Face Detection: {faceDetection.detection_stats.available ? 'Available' : 'Unavailable'} | 
+             Min Face Size: {faceDetection.detection_stats.min_face_size}px</p>
+        )}
       </div>
     </div>
   );

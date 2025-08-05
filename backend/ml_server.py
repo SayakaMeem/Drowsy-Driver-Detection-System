@@ -18,6 +18,14 @@ import tensorflow as tf
 from tensorflow import keras
 import logging
 
+# Import face detector module
+try:
+    from face_detector import create_face_detector, validate_image
+    FACE_DETECTOR_AVAILABLE = True
+except ImportError as e:
+    FACE_DETECTOR_AVAILABLE = False
+    print(f"Warning: Face detector module not available: {e}")
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,6 +39,12 @@ class DrowsinessDetector:
         self.model_path = None
         self.is_loaded = False
         self.input_shape = (224, 224, 3)  # Adjust based on your model's input shape
+        
+        # Initialize face detector
+        if FACE_DETECTOR_AVAILABLE:
+            self.face_detector = create_face_detector()
+        else:
+            self.face_detector = None
         
     def load_model(self, model_path):
         """Load the Keras model from the specified path"""
@@ -73,6 +87,20 @@ class DrowsinessDetector:
             # Convert to RGB if needed
             if image.mode != 'RGB':
                 image = image.convert('RGB')
+            
+            # Detect and crop face if face detection is available
+            if self.face_detector is not None and self.face_detector.is_face_detection_available():
+                # Use the combined detect and crop method
+                face_image, face_data, bbox = self.face_detector.detect_and_crop_largest_face(
+                    image, padding=0.2, target_size=self.input_shape
+                )
+                if face_image is not None:
+                    image = face_image
+                    logger.info(f"Face detected and cropped: {bbox}")
+                else:
+                    logger.warning("Face detection failed, using original image")
+            else:
+                logger.info("Face detection not available, using original image")
             
             # Resize to model input shape
             image = image.resize((self.input_shape[0], self.input_shape[1]))
@@ -134,6 +162,7 @@ def health_check():
         'status': 'healthy',
         'model_loaded': detector.is_loaded,
         'model_path': detector.model_path if detector.is_loaded else None,
+        'face_detection_available': detector.face_detector.is_face_detection_available() if detector.face_detector else False,
         'timestamp': str(np.datetime64('now'))
     })
 
@@ -189,6 +218,7 @@ def detect_drowsiness():
             'alertness': get_alertness_level(confidence),
             'metrics': metrics,
             'model_used': result['model_used'],
+            'face_detection_used': detector.face_detector.is_face_detection_available() if detector.face_detector else False,
             'inference_time': np.random.uniform(20, 70),  # Simulated inference time
             'timestamp': str(np.datetime64('now'))
         }
@@ -199,6 +229,78 @@ def detect_drowsiness():
         logger.error(f"Error in drowsiness detection: {str(e)}")
         return jsonify({
             'error': 'Detection failed',
+            'details': str(e)
+        }), 500
+
+@app.route('/detect-faces', methods=['POST'])
+def detect_faces():
+    """Face detection endpoint"""
+    try:
+        data = request.get_json()
+        image_data = data.get('image')
+        
+        if not image_data:
+            return jsonify({'error': 'No image data provided'}), 400
+        
+        # Decode image
+        if isinstance(image_data, str):
+            if image_data.startswith('data:image'):
+                image_data = image_data.split(',')[1]
+            image_bytes = base64.b64decode(image_data)
+            image = Image.open(io.BytesIO(image_bytes))
+        else:
+            image = Image.open(io.BytesIO(image_data))
+        
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        # Detect faces
+        if detector.face_detector is None:
+            return jsonify({
+                'success': False,
+                'error': 'Face detection not available',
+                'face_detection_available': False
+            }), 500
+        
+        faces = detector.face_detector.detect_faces(image)
+        
+        # Process face data
+        face_data = []
+        for face in faces:
+            bbox = face['box']
+            confidence = detector.face_detector.get_face_confidence(face)
+            keypoints = detector.face_detector.get_face_keypoints(face)
+            
+            # Convert numpy types to Python types for JSON serialization
+            bbox = [int(x) for x in bbox]
+            confidence = float(confidence)
+            
+            # Convert keypoints to serializable format
+            serializable_keypoints = {}
+            for key, value in keypoints.items():
+                if value is not None:
+                    serializable_keypoints[key] = [int(x) for x in value]
+                else:
+                    serializable_keypoints[key] = None
+            
+            face_data.append({
+                'bbox': bbox,  # [x, y, width, height]
+                'confidence': confidence,
+                'keypoints': serializable_keypoints
+            })
+        
+        return jsonify({
+            'success': True,
+            'faces_detected': len(faces),
+            'faces': face_data,
+            'face_detection_available': detector.face_detector.is_face_detection_available(),
+            'detection_stats': detector.face_detector.get_detection_stats()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in face detection: {str(e)}")
+        return jsonify({
+            'error': 'Face detection failed',
             'details': str(e)
         }), 500
 

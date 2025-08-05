@@ -133,16 +133,22 @@ class MLService {
         // Apply smoothing to the confidence
         const smoothedConfidence = this.smoothConfidence(result.confidence);
         
-        // Handle face detection results
-        if (result.face_detection && this.onFaceDetectionUpdate) {
-          this.onFaceDetectionUpdate(result.face_detection);
+        // Handle face detection results - call both drowsiness and face detection APIs
+        let faceDetectionData = null;
+        try {
+          faceDetectionData = await this.callFaceDetectionAPI(imageData);
+          if (faceDetectionData && this.onFaceDetectionUpdate) {
+            this.onFaceDetectionUpdate(faceDetectionData);
+          }
+        } catch (faceError) {
+          console.warn('Face detection API failed:', faceError.message);
         }
         
         return {
           ...result,
           confidence: smoothedConfidence,
           rawConfidence: result.confidence,
-          faceDetection: result.face_detection
+          faceDetection: faceDetectionData
         };
       } catch (error) {
         console.warn('Backend API failed, using simulation:', error);
@@ -222,6 +228,61 @@ class MLService {
       metrics: result.metrics || {},
       face_detection: result.face_detection || null
     };
+  }
+
+  // Call face detection API
+  async callFaceDetectionAPI(imageData) {
+    // Convert image data to base64
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = imageData.width;
+    canvas.height = imageData.height;
+    ctx.putImageData(imageData, 0, 0);
+    
+    const base64Image = canvas.toDataURL('image/jpeg', 0.8);
+    
+    // Try Python backend first
+    try {
+      const pythonResponse = await fetch(`${this.pythonBackendUrl}/detect-faces`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image: base64Image
+        })
+      });
+
+      if (pythonResponse.ok) {
+        const result = await pythonResponse.json();
+        return result;
+      }
+    } catch (pythonError) {
+      console.warn('Python face detection backend failed:', pythonError.message);
+    }
+    
+    // Fallback to Next.js API if available
+    try {
+      const response = await fetch('/api/detect-faces', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image: base64Image
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        return result;
+      }
+    } catch (nextjsError) {
+      console.warn('Next.js face detection API failed:', nextjsError.message);
+    }
+    
+    // Return null if no face detection available
+    return null;
   }
 
   // Simulate ML detection (fallback when backend is not available)
