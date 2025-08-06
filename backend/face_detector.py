@@ -8,6 +8,7 @@ import os
 import numpy as np
 from PIL import Image
 import logging
+import cv2 # Added for color space conversions
 
 # MTCNN for face detection
 try:
@@ -71,14 +72,20 @@ class FaceDetector:
             else:
                 image_array = image
             
-            # Ensure image is in RGB format
-            if len(image_array.shape) == 3 and image_array.shape[2] == 4:
-                # Convert RGBA to RGB
-                image_array = image_array[:, :, :3]
+            # Ensure image is in RGB format for MTCNN, handling various input formats
+            if len(image_array.shape) == 2: # Grayscale (H, W)
+                image_array = cv2.cvtColor(image_array, cv2.COLOR_GRAY2RGB)
+            elif len(image_array.shape) == 3 and image_array.shape[2] == 4: # RGBA (H, W, 4)
+                image_array = image_array[:, :, :3] # Convert to RGB
+            elif len(image_array.shape) == 3 and image_array.shape[2] == 1: # Grayscale with channel dim (H, W, 1)
+                image_array = cv2.cvtColor(image_array, cv2.COLOR_GRAY2RGB)
+            # If it's already (H, W, 3), it will pass through
+
+            logger.debug(f"Input image_array shape for MTCNN detection: {image_array.shape}") # Debug log
             
             # Detect faces
             faces = self.detector.detect_faces(image_array)
-            logger.info(f"Detected {len(faces)} faces in image")
+            logger.info(f"📹Detected {len(faces)} faces in image") # Corrected: Log after detection
             
             return faces
             
@@ -101,10 +108,25 @@ class FaceDetector:
         """
         try:
             if isinstance(image, Image.Image):
+                # Ensure PIL image is RGB before converting to numpy
+                if image.mode != 'RGB':
+                    image = image.convert('RGB')
                 image_array = np.array(image)
+            elif isinstance(image, np.ndarray):
+                # Ensure numpy array is 3-channel RGB before cropping
+                if len(image.shape) == 2: # Grayscale (H, W)
+                    image_array = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+                elif len(image.shape) == 3 and image.shape[2] == 4: # RGBA (H, W, 4)
+                    image_array = image[:, :, :3] # Convert to RGB
+                elif len(image.shape) == 3 and image.shape[2] == 1: # Grayscale with channel dim (H, W, 1)
+                    image_array = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+                else: # Assume it's already RGB (H, W, 3) or other valid format
+                    image_array = image
             else:
-                image_array = image
-            
+                raise ValueError("Image must be PIL Image or numpy array")
+
+            logger.debug(f"Input image_array shape in crop_face: {image_array.shape}")
+
             # Get bounding box
             x, y, width, height = face_data['box']
             
@@ -119,23 +141,33 @@ class FaceDetector:
             x2 = min(img_width, x + width + pad_x)
             y2 = min(img_height, y + height + pad_y)
             
+            logger.debug(f"Crop coords: x1={x1}, y1={y1}, x2={x2}, y2={y2}")
+            logger.debug(f"Image dims: img_width={img_width}, img_height={img_height}")
+
+            # --- IMPORTANT: Check for valid dimensions BEFORE cropping ---
+            if x1 >= x2 or y1 >= y2:
+                logger.error(f"Invalid crop dimensions after padding: x1={x1}, x2={x2}, y1={y1}, y2={y2}. Cannot crop.")
+                return None, None
+
             # Crop the face
             face_crop = image_array[y1:y2, x1:x2]
+            logger.debug(f"Shape of face_crop before Image.fromarray: {face_crop.shape}")
             
             # Convert back to PIL Image
             face_image = Image.fromarray(face_crop)
             
             # Resize to target size if specified
             if target_size:
+                logger.debug(f"Resizing cropped face from {face_image.size} to {target_size}")
                 face_image = face_image.resize(target_size, Image.Resampling.LANCZOS)
             
             bbox = (x1, y1, x2, y2)
-            logger.info(f"Face cropped successfully: {bbox}")
+            logger.info(f"✅Face cropped successfully: {bbox}")
             
             return face_image, bbox
             
         except Exception as e:
-            logger.error(f"Error cropping face: {str(e)}")
+            logger.error(f"❌Error cropping face: {str(e)}")
             return None, None
     
     def get_largest_face(self, faces):
@@ -205,7 +237,7 @@ class FaceDetector:
         largest_face = self.get_largest_face(faces)
         
         if largest_face is None:
-            logger.warning("Failed to get largest face")
+            logger.warning("Failed to get largest face (should not happen if faces were detected)")
             return None, None, None
         
         # Crop the face
@@ -304,4 +336,4 @@ if __name__ == "__main__":
     detector = create_face_detector()
     
     print(f"Face detection available: {detector.is_face_detection_available()}")
-    print(f"Detection stats: {detector.get_detection_stats()}") 
+    print(f"Detection stats: {detector.get_detection_stats()}")

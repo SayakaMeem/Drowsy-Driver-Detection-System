@@ -124,7 +124,7 @@ export default function ConfidenceLevel({ confidence, alertness }) {
            <div>
              <span className="text-gray-600">Blink Rate:</span>
              <span className="float-right font-medium text-gray-600">
-               {/* metrics?.blinkRate || 0 */}
+               {/* metrics?.blinkRate || 0 }
                {/* This state is no longer needed */}
              </span>
            </div>
