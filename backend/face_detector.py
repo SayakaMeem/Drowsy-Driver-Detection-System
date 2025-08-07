@@ -4,336 +4,163 @@ Face Detection Module using MTCNN
 Provides face detection and cropping functionality for drowsiness detection
 """
 
-import os
+import cv2
 import numpy as np
-from PIL import Image
+from mtcnn.mtcnn import MTCNN
 import logging
-import cv2 # Added for color space conversions
+from PIL import Image
 
-# MTCNN for face detection
-try:
-    from mtcnn import MTCNN
-    MTCNN_AVAILABLE = True
-except ImportError:
-    MTCNN_AVAILABLE = False
-    print("Warning: MTCNN not available. Install with: pip install mtcnn")
-
-# Configure logging
 logger = logging.getLogger(__name__)
 
 class FaceDetector:
-    """Face detection using MTCNN"""
-    
-    def __init__(self, min_face_size=20, scale_factor=0.709, steps_threshold=(0.6, 0.7, 0.7)):
+    """
+    A class to handle face detection using MTCNN.
+    """
+    def __init__(self):
+        logger.info("Initializing MTCNN face detector...")
+        self.detector = MTCNN()
+        logger.info("MTCNN face detector initialized.")
+
+    def is_face_detection_available(self):
+        # Always True if the detector is initialized
+        return self.detector is not None
+
+    def detect_and_crop_face(self, image, padding=0.2, target_size=(80, 80)):
         """
-        Initialize MTCNN face detector
-        
-        Args:
-            min_face_size (int): Minimum face size to detect
-            scale_factor (float): Scale factor for image pyramid
-            steps_threshold (tuple): Thresholds for the three stages of MTCNN
+        Detect faces and crop the largest one with padding support.
+        Returns (cropped_face_pil, face_data, bbox) or (None, None, None) if failed.
         """
-        self.detector = None
-        self.is_available = MTCNN_AVAILABLE
-        self.min_face_size = min_face_size
-        self.scale_factor = scale_factor
-        self.steps_threshold = steps_threshold
-        
-        if self.is_available:
-            try:
-                # MTCNN constructor doesn't accept these parameters directly
-                # We'll use the default constructor and set parameters later if needed
-                self.detector = MTCNN()
-                logger.info("MTCNN face detector initialized successfully")
-                logger.info(f"Using default MTCNN parameters")
-            except Exception as e:
-                logger.error(f"Failed to initialize MTCNN: {str(e)}")
-                self.is_available = False
-        else:
-            logger.warning("MTCNN not available. Face detection will be disabled.")
-    
-    def detect_faces(self, image):
-        """
-        Detect faces in the image and return bounding boxes
-        
-        Args:
-            image: PIL Image or numpy array
-            
-        Returns:
-            list: List of detected faces with bounding boxes and keypoints
-        """
-        if not self.is_available or self.detector is None:
-            return []
-        
         try:
             # Convert PIL image to numpy array if needed
             if isinstance(image, Image.Image):
-                image_array = np.array(image)
+                image_np_rgb = np.array(image)
             else:
-                image_array = image
-            
-            # Ensure image is in RGB format for MTCNN, handling various input formats
-            if len(image_array.shape) == 2: # Grayscale (H, W)
-                image_array = cv2.cvtColor(image_array, cv2.COLOR_GRAY2RGB)
-            elif len(image_array.shape) == 3 and image_array.shape[2] == 4: # RGBA (H, W, 4)
-                image_array = image_array[:, :, :3] # Convert to RGB
-            elif len(image_array.shape) == 3 and image_array.shape[2] == 1: # Grayscale with channel dim (H, W, 1)
-                image_array = cv2.cvtColor(image_array, cv2.COLOR_GRAY2RGB)
-            # If it's already (H, W, 3), it will pass through
+                image_np_rgb = image
 
-            logger.debug(f"Input image_array shape for MTCNN detection: {image_array.shape}") # Debug log
-            
-            # Detect faces
-            faces = self.detector.detect_faces(image_array)
-            logger.info(f"📹Detected {len(faces)} faces in image") # Corrected: Log after detection
-            
-            return faces
-            
-        except Exception as e:
-            logger.error(f"Error in face detection: {str(e)}")
-            return []
-    
-    def crop_face(self, image, face_data, padding=0.2, target_size=None):
-        """
-        Crop the detected face with optional padding
-        
-        Args:
-            image: PIL Image or numpy array
-            face_data (dict): Face detection result from MTCNN
-            padding (float): Padding factor around the face (0.2 = 20% padding)
-            target_size (tuple): Optional target size for the cropped face (width, height)
-            
-        Returns:
-            tuple: (cropped_image, bounding_box) or (None, None) if failed
-        """
-        try:
-            if isinstance(image, Image.Image):
-                # Ensure PIL image is RGB before converting to numpy
-                if image.mode != 'RGB':
-                    image = image.convert('RGB')
-                image_array = np.array(image)
-            elif isinstance(image, np.ndarray):
-                # Ensure numpy array is 3-channel RGB before cropping
-                if len(image.shape) == 2: # Grayscale (H, W)
-                    image_array = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-                elif len(image.shape) == 3 and image.shape[2] == 4: # RGBA (H, W, 4)
-                    image_array = image[:, :, :3] # Convert to RGB
-                elif len(image.shape) == 3 and image.shape[2] == 1: # Grayscale with channel dim (H, W, 1)
-                    image_array = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-                else: # Assume it's already RGB (H, W, 3) or other valid format
-                    image_array = image
-            else:
-                raise ValueError("Image must be PIL Image or numpy array")
+            if image_np_rgb is None or image_np_rgb.size == 0:
+                logger.error("Input image for face detection is empty or None.")
+                return None, None, None
 
-            logger.debug(f"Input image_array shape in crop_face: {image_array.shape}")
+            faces = self.detector.detect_faces(image_np_rgb)
+            if not faces:
+                logger.warning("No face detected in the image.")
+                return None, None, None
 
-            # Get bounding box
-            x, y, width, height = face_data['box']
+            # Get largest face
+            largest_face = max(faces, key=lambda face: face['box'][2] * face['box'][3])
+            x, y, width, height = largest_face['box']
             
             # Add padding
-            img_height, img_width = image_array.shape[:2]
+            img_h, img_w, _ = image_np_rgb.shape
             pad_x = int(width * padding)
             pad_y = int(height * padding)
             
             # Calculate new coordinates with padding
             x1 = max(0, x - pad_x)
             y1 = max(0, y - pad_y)
-            x2 = min(img_width, x + width + pad_x)
-            y2 = min(img_height, y + height + pad_y)
+            x2 = min(img_w, x + width + pad_x)
+            y2 = min(img_h, y + height + pad_y)
             
-            logger.debug(f"Crop coords: x1={x1}, y1={y1}, x2={x2}, y2={y2}")
-            logger.debug(f"Image dims: img_width={img_width}, img_height={img_height}")
-
-            # --- IMPORTANT: Check for valid dimensions BEFORE cropping ---
-            if x1 >= x2 or y1 >= y2:
-                logger.error(f"Invalid crop dimensions after padding: x1={x1}, x2={x2}, y1={y1}, y2={y2}. Cannot crop.")
-                return None, None
-
             # Crop the face
-            face_crop = image_array[y1:y2, x1:x2]
-            logger.debug(f"Shape of face_crop before Image.fromarray: {face_crop.shape}")
+            cropped_face = image_np_rgb[y1:y2, x1:x2]
+            if cropped_face.size == 0:
+                logger.warning("Cropped face region is empty after padding.")
+                return None, None, None
             
-            # Convert back to PIL Image
-            face_image = Image.fromarray(face_crop)
-            
-            # Resize to target size if specified
+            # Convert to PIL Image and resize
+            cropped_face_pil = Image.fromarray(cropped_face)
             if target_size:
-                logger.debug(f"Resizing cropped face from {face_image.size} to {target_size}")
-                face_image = face_image.resize(target_size, Image.Resampling.LANCZOS)
+                cropped_face_pil = cropped_face_pil.resize(target_size, Image.Resampling.LANCZOS)
             
             bbox = (x1, y1, x2, y2)
-            logger.info(f"✅Face cropped successfully: {bbox}")
-            
-            return face_image, bbox
+            return cropped_face_pil, largest_face, bbox
             
         except Exception as e:
-            logger.error(f"❌Error cropping face: {str(e)}")
-            return None, None
-    
-    def get_largest_face(self, faces):
-        """
-        Get the largest face from detected faces
-        
-        Args:
-            faces (list): List of detected faces
-            
-        Returns:
-            dict: Largest face data or None if no faces
-        """
-        if not faces:
-            return None
-        
-        # Sort by face area (width * height)
-        faces_with_area = [(face, face['box'][2] * face['box'][3]) for face in faces]
-        faces_with_area.sort(key=lambda x: x[1], reverse=True)
-        
-        largest_face = faces_with_area[0][0]
-        logger.info(f"Selected largest face with area: {faces_with_area[0][1]} pixels")
-        
-        return largest_face
-    
-    def get_face_keypoints(self, face_data):
-        """
-        Extract key facial landmarks from face detection result
-        
-        Args:
-            face_data (dict): Face detection result from MTCNN
-            
-        Returns:
-            dict: Dictionary of facial landmarks
-        """
-        keypoints = face_data.get('keypoints', {})
-        
-        landmarks = {
-            'left_eye': keypoints.get('left_eye', None),
-            'right_eye': keypoints.get('right_eye', None),
-            'nose': keypoints.get('nose', None),
-            'mouth_left': keypoints.get('mouth_left', None),
-            'mouth_right': keypoints.get('mouth_right', None)
-        }
-        
-        return landmarks
-    
-    def detect_and_crop_largest_face(self, image, padding=0.2, target_size=None):
-        """
-        Detect faces and crop the largest one
-        
-        Args:
-            image: PIL Image or numpy array
-            padding (float): Padding factor around the face
-            target_size (tuple): Optional target size for the cropped face
-            
-        Returns:
-            tuple: (cropped_image, face_data, bbox) or (None, None, None) if failed
-        """
-        # Detect faces
-        faces = self.detect_faces(image)
-        
-        if not faces:
-            logger.warning("No faces detected in image")
+            logger.error(f"Error in detect_and_crop_face: {str(e)}")
             return None, None, None
-        
-        # Get largest face
-        largest_face = self.get_largest_face(faces)
-        
-        if largest_face is None:
-            logger.warning("Failed to get largest face (should not happen if faces were detected)")
-            return None, None, None
-        
-        # Crop the face
-        face_image, bbox = self.crop_face(image, largest_face, padding, target_size)
-        
-        if face_image is None:
-            logger.warning("Failed to crop face")
-            return None, None, None
-        
-        return face_image, largest_face, bbox
-    
+
+    def detect_faces(self, image):
+        """Detect all faces in the image"""
+        try:
+            if isinstance(image, Image.Image):
+                image_np_rgb = np.array(image)
+            else:
+                image_np_rgb = image
+            
+            if image_np_rgb is None or image_np_rgb.size == 0:
+                return []
+            
+            faces = self.detector.detect_faces(image_np_rgb)
+            return faces
+        except Exception as e:
+            logger.error(f"Error in detect_faces: {str(e)}")
+            return []
+
     def get_face_confidence(self, face_data):
-        """
-        Get confidence score for detected face
-        
-        Args:
-            face_data (dict): Face detection result from MTCNN
-            
-        Returns:
-            float: Confidence score (0-1)
-        """
+        """Get confidence score for detected face"""
         return face_data.get('confidence', 0.0)
-    
-    def is_face_detection_available(self):
+
+    def get_face_keypoints(self, face_data):
+        """Get facial landmarks from face detection result"""
+        return face_data.get('keypoints', {})
+
+    def get_face_landmarks(self, image_np_rgb):
+        if image_np_rgb is None or image_np_rgb.size == 0:
+            logger.error("Input image for landmark detection is empty or None.")
+            return []
+        faces = self.detector.detect_faces(image_np_rgb)
+        formatted_faces = []
+        for face in faces:
+            formatted_faces.append({
+                'box': [int(val) for val in face['box']],
+                'keypoints': {key: [int(val) for val in value] for key, value in face['keypoints'].items()},
+                'confidence': float(face['confidence'])
+            })
+        return formatted_faces
+
+    def crop_eyes(self, image, face_data, eye_size=(40, 40), padding=0.3):
         """
-        Check if face detection is available
-        
-        Returns:
-            bool: True if MTCNN is available and initialized
+        Crop left and right eye regions from the image using face_data keypoints.
+        Returns (left_eye_pil, right_eye_pil) or (None, None) if failed.
         """
-        return self.is_available and self.detector is not None
-    
+        try:
+            if isinstance(image, Image.Image):
+                image_np = np.array(image)
+            else:
+                image_np = image
+            keypoints = face_data.get('keypoints', {})
+            left_eye = keypoints.get('left_eye')
+            right_eye = keypoints.get('right_eye')
+            if left_eye is None or right_eye is None:
+                return None, None
+            for eye, name in zip([left_eye, right_eye], ['left', 'right']):
+                x, y = eye
+                w, h = eye_size
+                pad_w = int(w * padding)
+                pad_h = int(h * padding)
+                x1 = max(0, x - w//2 - pad_w)
+                y1 = max(0, y - h//2 - pad_h)
+                x2 = min(image_np.shape[1], x + w//2 + pad_w)
+                y2 = min(image_np.shape[0], y + h//2 + pad_h)
+                crop = image_np[y1:y2, x1:x2]
+                if crop.size == 0:
+                    return None, None
+                pil_crop = Image.fromarray(crop).resize(eye_size, Image.Resampling.LANCZOS)
+                if name == 'left':
+                    left_eye_pil = pil_crop
+                else:
+                    right_eye_pil = pil_crop
+            return left_eye_pil, right_eye_pil
+        except Exception as e:
+            logger.error(f"Error in crop_eyes: {str(e)}")
+            return None, None
+
     def get_detection_stats(self):
-        """
-        Get face detection statistics and configuration
-        
-        Returns:
-            dict: Detection statistics and configuration
-        """
+        """Get face detection statistics and configuration"""
         return {
-            'available': self.is_available,
+            'available': self.is_face_detection_available(),
             'initialized': self.detector is not None,
-            'min_face_size': self.min_face_size,
-            'scale_factor': self.scale_factor,
-            'steps_threshold': self.steps_threshold
+            'min_face_size': 20,
+            'scale_factor': 0.709,
+            'steps_threshold': (0.6, 0.7, 0.7)
         }
-
-# Utility functions
-def create_face_detector(min_face_size=20, scale_factor=0.709, steps_threshold=(0.6, 0.7, 0.7)):
-    """
-    Factory function to create a face detector
-    
-    Args:
-        min_face_size (int): Minimum face size to detect (not used in current MTCNN version)
-        scale_factor (float): Scale factor for image pyramid (not used in current MTCNN version)
-        steps_threshold (tuple): Thresholds for the three stages of MTCNN (not used in current MTCNN version)
-        
-    Returns:
-        FaceDetector: Configured face detector instance
-    """
-    return FaceDetector(min_face_size, scale_factor, steps_threshold)
-
-def validate_image(image):
-    """
-    Validate and prepare image for face detection
-    
-    Args:
-        image: PIL Image or numpy array
-        
-    Returns:
-        PIL Image: Validated and prepared image
-    """
-    try:
-        if isinstance(image, Image.Image):
-            # Convert to RGB if needed
-            if image.mode != 'RGB':
-                image = image.convert('RGB')
-            return image
-        elif isinstance(image, np.ndarray):
-            # Convert numpy array to PIL Image
-            if len(image.shape) == 3 and image.shape[2] == 4:
-                # Convert RGBA to RGB
-                image = image[:, :, :3]
-            return Image.fromarray(image)
-        else:
-            raise ValueError("Image must be PIL Image or numpy array")
-    except Exception as e:
-        logger.error(f"Error validating image: {str(e)}")
-        raise
-
-if __name__ == "__main__":
-    # Test the face detector
-    logging.basicConfig(level=logging.INFO)
-    
-    # Create face detector
-    detector = create_face_detector()
-    
-    print(f"Face detection available: {detector.is_face_detection_available()}")
-    print(f"Detection stats: {detector.get_detection_stats()}")

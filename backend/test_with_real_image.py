@@ -15,7 +15,7 @@ from io import BytesIO
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Import face detector
-from face_detector import create_face_detector
+from face_detector import FaceDetector
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -43,7 +43,7 @@ def test_face_detection_with_real_image():
     print("\n🔍 Testing Face Detection with Real Image...")
     
     # Create face detector
-    detector = create_face_detector()
+    detector = FaceDetector()
     if not detector.is_face_detection_available():
         print("❌ Face detection not available")
         return False

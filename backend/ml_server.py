@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # Import face detector module
 try:
     # This import matches the structure of your provided face_detector.py
-    from face_detector import create_face_detector, validate_image, FaceDetector 
+    from face_detector import FaceDetector
     FACE_DETECTOR_AVAILABLE = True
 except ImportError as e:
     FACE_DETECTOR_AVAILABLE = False
@@ -59,7 +59,7 @@ class DrowsinessDetector:
         
         # Initialize face detector using the factory function from face_detector.py
         if FACE_DETECTOR_AVAILABLE:
-            self.face_detector = create_face_detector()
+            self.face_detector = FaceDetector()
         else:
             self.face_detector = None
             logger.warning("Face detection will not be used as FaceDetector is not available.")
@@ -112,138 +112,108 @@ class DrowsinessDetector:
     
     def preprocess_image(self, image_data):
         """
-        Preprocess image for model inference, including face detection and cropping.
-        Returns the preprocessed image array (NumPy) and face detection landmarks (list).
-        
-        This function is modified to ensure an image is always returned for the
-        drowsiness model, even if face cropping fails.
+        Preprocess image for model inference, including face detection and eye cropping.
+        Returns a dict with left and right eye images (NumPy arrays) and face detection landmarks (list).
         """
-        face_landmarks_results = [] # Initialize list for face detection results
-        image_for_drowsiness_model = None # This will be the PIL Image that goes to the model
-
+        face_landmarks_results = []
+        left_eye_img = None
+        right_eye_img = None
         try:
             # Decode base64 image
             if isinstance(image_data, str):
-                # Remove data URL prefix if present
                 if image_data.startswith('data:image'):
                     image_data = image_data.split(',')[1]
-                
-                # Decode base64
                 image_bytes = base64.b64decode(image_data)
-                original_pil_image = Image.open(io.BytesIO(image_bytes)).convert('RGB') # Ensure RGB
+                original_pil_image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
             else:
-                original_pil_image = Image.open(io.BytesIO(image_data)).convert('RGB') # Ensure RGB
-
+                original_pil_image = Image.open(io.BytesIO(image_data)).convert('RGB')
             logger.debug(f"Original PIL image mode: {original_pil_image.mode}, size: {original_pil_image.size}")
             
-            # Attempt to detect and crop face if face detection is available
             if self.face_detector is not None and self.face_detector.is_face_detection_available():
-                cropped_face_pil, face_data, bbox = self.face_detector.detect_and_crop_largest_face(
-                    original_pil_image, 
-                    padding=0.2, 
-                    target_size=(self.drowsiness_model_input_shape[0], self.drowsiness_model_input_shape[1])
-                )
-                
-                if face_data and cropped_face_pil: # If a face was detected and cropped successfully
-                    # Format face_data and bbox for face_landmarks_results
-                    face_landmarks_results.append({
-                        'box': [int(val) for val in face_data['box']],
-                        'keypoints': {k: [int(v_coord) for v_coord in v] for k, v in face_data['keypoints'].items()},
-                        'confidence': float(face_data['confidence'])
-                    })
-                    logger.info(f"Face detected and cropped to {self.drowsiness_model_input_shape}: {bbox}")
-                    image_for_drowsiness_model = cropped_face_pil # Use the cropped PIL image
-                    logger.debug(f"Using cropped face. PIL image size: {image_for_drowsiness_model.size}")
+                # Detect faces and get landmarks
+                faces = self.face_detector.detect_faces(original_pil_image)
+                if faces:
+                    for face in faces:
+                        face_landmarks_results.append({
+                            'box': [int(val) for val in face['box']],
+                            'keypoints': {k: [int(v_coord) for v_coord in v] for k, v in face['keypoints'].items()},
+                            'confidence': float(face['confidence'])
+                        })
+                    # Crop eyes from the largest face for prediction
+                    largest_face = max(faces, key=lambda face: face['box'][2] * face['box'][3])
+                    left_eye_pil, right_eye_pil = self.face_detector.crop_eyes(
+                        original_pil_image, largest_face, eye_size=(self.drowsiness_model_input_shape[0], self.drowsiness_model_input_shape[1]), padding=0.3)
+                    if left_eye_pil is not None and right_eye_pil is not None:
+                        left_eye_img = np.array(left_eye_pil).astype('float32') / 255.0
+                        right_eye_img = np.array(right_eye_pil).astype('float32') / 255.0
+                        left_eye_img = np.expand_dims(left_eye_img, axis=0)
+                        right_eye_img = np.expand_dims(right_eye_img, axis=0)
+                        logger.info(f"Eyes cropped successfully to {self.drowsiness_model_input_shape}")
+                    else:
+                        logger.warning("Eye cropping failed.")
                 else:
-                    # Face detection or cropping failed, use original image for drowsiness model
-                    logger.warning("Face detection or cropping failed. Using original image (resized) for drowsiness model.")
-                    image_for_drowsiness_model = original_pil_image # Fallback to original PIL image
-                    logger.debug(f"Using original image as fallback. PIL image size: {image_for_drowsiness_model.size}")
+                    logger.warning("No face detected in image.")
             else:
-                # Face detection not available, use original image for drowsiness model
-                logger.info("Face detection not available. Using original image (resized) for drowsiness model.")
-                image_for_drowsiness_model = original_pil_image # Use original PIL image if face detector not available
-                logger.debug(f"Using original image as fallback (no face detector). PIL image size: {image_for_drowsiness_model.size}")
+                logger.info("Face detection not available.")
             
-            # Ensure image_for_drowsiness_model is a PIL Image before resizing
-            if not isinstance(image_for_drowsiness_model, Image.Image):
-                logger.error(f"image_for_drowsiness_model is not a PIL Image before final resize: {type(image_for_drowsiness_model)}")
-                return None, []
-
-            # This is the crucial resizing step
-            # Ensure the image is resized to the drowsiness_model_input_shape (80x80)
-            image_for_drowsiness_model = image_for_drowsiness_model.resize(
-                (self.drowsiness_model_input_shape[0], self.drowsiness_model_input_shape[1]),
-                Image.Resampling.LANCZOS # Use LANCZOS for high quality downsampling
-            )
-            logger.debug(f"PIL image size AFTER final resize: {image_for_drowsiness_model.size}")
-            
-            # Convert to numpy array and normalize
-            image_array = np.array(image_for_drowsiness_model)
-            logger.debug(f"Numpy array shape AFTER PIL conversion: {image_array.shape}")
-            image_array = image_array.astype('float32') / 255.0
-            
-            # Add batch dimension
-            image_array = np.expand_dims(image_array, axis=0)
-            logger.debug(f"Final preprocessed image_array shape (with batch dim): {image_array.shape}")
-            
-            return image_array, face_landmarks_results
-            
+            if left_eye_img is None or right_eye_img is None:
+                logger.warning("Eye cropping failed. Returning None for eye images.")
+            return {'left_eye': left_eye_img, 'right_eye': right_eye_img, 'face_landmarks_results': face_landmarks_results}
         except Exception as e:
             logger.error(f"Error in preprocess_image: {str(e)}")
-            # On critical error during initial image processing, return None for image_array
-            # This should ideally not happen if image_data is valid base64.
-            return None, []
-    
+            return {'left_eye': None, 'right_eye': None, 'face_landmarks_results': []}
+
     def predict(self, image_data):
-        """Run inference on the preprocessed image and include face detection results."""
+        """Run inference on the preprocessed left and right eye images and include face detection results."""
         try:
             if not self.is_loaded:
                 raise ValueError("Model not loaded")
-            
-            # Preprocess image and get face detection results
-            preprocessed_image, face_landmarks_results = self.preprocess_image(image_data)
-            
-            if preprocessed_image is None:
-                # This case should now only happen if initial image decoding fails.
-                logger.error("Failed to preprocess image data for prediction.")
+            preprocessed = self.preprocess_image(image_data)
+            left_eye_img = preprocessed['left_eye']
+            right_eye_img = preprocessed['right_eye']
+            face_landmarks_results = preprocessed['face_landmarks_results']
+            if left_eye_img is None or right_eye_img is None:
+                logger.error("Failed to preprocess eye images for prediction.")
                 return {
                     'success': False,
-                    'error': 'Image data preprocessing failed',
-                    'confidence_open_eye': 0,
-                    'raw_predictions': [],
+                    'error': 'Eye image preprocessing failed',
+                    'left_eye_confidence': 0,
+                    'right_eye_confidence': 0,
+                    'left_eye_prediction': [],
+                    'right_eye_prediction': [],
                     'model_used': os.path.basename(self.model_path) if self.model_path else None,
                     'face_landmarks_results': face_landmarks_results
                 }
-
-            logger.debug(f"Shape of preprocessed_image before model.predict: {preprocessed_image.shape}") # Debug log here
-            # Run inference
-            predictions = self.model.predict(preprocessed_image, verbose=0)
-            
-            # Process predictions based on your model's output format
+            # Run inference for each eye
+            left_pred = self.model.predict(left_eye_img, verbose=0)
+            right_pred = self.model.predict(right_eye_img, verbose=0)
             # Assuming binary classification: [closed_prob, open_prob]. Index 1 is 'Open-Eyes'
-            confidence_open_eye = float(predictions[0][1]) * 100 
-            
-            # Ensure confidence is in valid range
-            confidence_open_eye = max(0, min(100, confidence_open_eye))
-            
+            left_conf = float(left_pred[0][1]) * 100
+            right_conf = float(right_pred[0][1]) * 100
+            left_conf = max(0, min(100, left_conf))
+            right_conf = max(0, min(100, right_conf))
+            logger.info(f"Left eye prediction: {left_pred.tolist()}, confidence: {left_conf:.2f}%")
+            logger.info(f"Right eye prediction: {right_pred.tolist()}, confidence: {right_conf:.2f}%")
             return {
                 'success': True,
-                'confidence_open_eye': confidence_open_eye,
-                'raw_predictions': predictions.tolist(),
+                'left_eye_confidence': left_conf,
+                'right_eye_confidence': right_conf,
+                'left_eye_prediction': left_pred.tolist(),
+                'right_eye_prediction': right_pred.tolist(),
                 'model_used': os.path.basename(self.model_path) if self.model_path else None,
-                'face_landmarks_results': face_landmarks_results # Pass through face detection results
+                'face_landmarks_results': face_landmarks_results
             }
-            
         except Exception as e:
             logger.error(f"Error during prediction: {str(e)}")
             return {
                 'success': False,
                 'error': str(e),
-                'confidence_open_eye': 0,
-                'raw_predictions': [],
+                'left_eye_confidence': 0,
+                'right_eye_confidence': 0,
+                'left_eye_prediction': [],
+                'right_eye_prediction': [],
                 'model_used': os.path.basename(self.model_path) if self.model_path else None,
-                'face_landmarks_results': [] # Empty list on error
+                'face_landmarks_results': []
             }
 
 # Global detector instance
@@ -298,79 +268,25 @@ def detect_drowsiness():
         data = request.get_json()
         image_data = data.get('image')
         timestamp = data.get('timestamp')
-        
         if not image_data:
             return jsonify({'error': 'No image data provided'}), 400
-        
-        # Run prediction, which now also handles face detection and preprocessing
         drowsiness_prediction_result = detector.predict(image_data)
-        
-        # Determine if face detection was successful for this frame
-        face_cropped_successfully = bool(drowsiness_prediction_result.get('face_landmarks_results'))
-
-        # Get confidence for "Open-Eyes"
-        confidence_open_eye = drowsiness_prediction_result['confidence_open_eye']
-        logger.info(f"Drowsiness model confidence (Open Eye): {confidence_open_eye:.2f}%") # Debug log
-        
-        # --- Analyze Drowsiness and Blinks using DrowsinessAnalyzer ---
-        metrics = {}
-        alertness_level = 'Unknown'
-        if detector.drowsiness_analyzer and DROWSINESS_ANALYZER_AVAILABLE:
-            metrics = detector.drowsiness_analyzer.analyze_frame(confidence_open_eye)
-            alertness_level = detector.drowsiness_analyzer.get_alertness_level(confidence_open_eye)
-        else:
-            logger.warning("DrowsinessAnalyzer not available. Using basic metrics and alertness.")
-            # Fallback for metrics if analyzer is not available
-            metrics = {
-                'eyeClosure': 'Normal' if confidence_open_eye > 50 else 'Detected',
-                'blinkRate': 0, # Cannot calculate without analyzer
-                'headPosition': 'Upright' if confidence_open_eye > 70 else 'Tilting',
-                'yawnCount': np.random.randint(0, 3) + (3 if confidence_open_eye < 40 else 0),
-                'eyeAspectRatio': (confidence_open_eye / 100) * 0.3 + 0.2,
-                'mouthAspectRatio': (confidence_open_eye / 100) * 0.2 + 0.1,
-                'pupilDiameter': (confidence_open_eye / 100) * 2 + 3,
-                'eyeMovement': 'Active' if confidence_open_eye > 60 else 'Reduced'
-            }
-            # Fallback to simple function if analyzer is not available
-            if confidence_open_eye >= 80:
-                alertness_level = 'Very Alert'
-            elif confidence_open_eye >= 60:
-                alertness_level = 'Alert'
-            elif confidence_open_eye >= 40:
-                alertness_level = 'Slightly Drowsy'
-            elif confidence_open_eye >= 20:
-                alertness_level = 'Drowsy'
-            else:
-                alertness_level = 'Very Drowsy'
-
-        # Adjust alertness level if face cropping failed
-        if not face_cropped_successfully:
-            alertness_level = "No Face Cropped (Analysis on Full Image)"
-            metrics['eyeClosure'] = "Unknown (No Face Cropped)"
-            # Keep other metrics as they are, based on the full image prediction
-            # Note: Blink rate and drowsiness score might be less accurate without a cropped face.
-
+        left_eye_conf = drowsiness_prediction_result['left_eye_confidence']
+        right_eye_conf = drowsiness_prediction_result['right_eye_confidence']
+        # Optionally, you can run drowsiness analyzer logic for each eye or combine
         response = {
-            'success': drowsiness_prediction_result['success'], # True if image processed, False on critical error
-            'confidence': confidence_open_eye,
-            'alertness': alertness_level,
-            'metrics': metrics,
+            'success': drowsiness_prediction_result['success'],
+            'left_eye_confidence': left_eye_conf,
+            'right_eye_confidence': right_eye_conf,
+            'left_eye_prediction': drowsiness_prediction_result['left_eye_prediction'],
+            'right_eye_prediction': drowsiness_prediction_result['right_eye_prediction'],
             'model_used': drowsiness_prediction_result['model_used'],
-            'face_detection_used': detector.face_detector.is_face_detection_available() if detector.face_detector else False,
-            'drowsiness_analyzer_used': DROWSINESS_ANALYZER_AVAILABLE,
-            'inference_time': np.random.uniform(20, 70),  # Simulated inference time
-            'timestamp': str(np.datetime64('now')),
-            'face_detection_landmarks': drowsiness_prediction_result.get('face_landmarks_results', []) # Get landmarks from prediction result
+            'face_detection_landmarks': drowsiness_prediction_result.get('face_landmarks_results', [])
         }
-        
         return jsonify(response)
-        
     except Exception as e:
         logger.error(f"Error in drowsiness detection endpoint: {str(e)}")
-        return jsonify({
-            'error': 'Detection failed',
-            'details': str(e)
-        }), 500
+        return jsonify({'error': 'Detection failed', 'details': str(e)}), 500
 
 @app.route('/detect-faces', methods=['POST'])
 def detect_faces():

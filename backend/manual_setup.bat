@@ -1,18 +1,14 @@
 @echo off
-echo 🤖 Setting up Drowsiness Detection Backend
-echo ==========================================
-
-echo �� Current directory: %CD%
-echo.
-
-echo �� Activating virtual environment...
+REM Manual setup script for backend (Windows)
+echo Manual setup for Drowsiness Detection Backend
+cd /d %~dp0
+if not exist venv (
+    echo Creating virtual environment...
+    python -m venv venv
+)
 call venv\Scripts\activate
-
-echo.
-echo 📦 Installing requirements...
+pip install --upgrade pip
 pip install -r requirements.txt
-
 echo.
-echo 🚀 Starting server...
-cd app
-python ml_server.py 
+echo ✅ Manual setup complete! To run the server, use: python run_server.py
+pause 

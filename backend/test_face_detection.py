@@ -14,7 +14,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Import face detector
 try:
-    from face_detector import create_face_detector
+    from face_detector import FaceDetector
     print("✅ Face detector module imported successfully")
 except ImportError as e:
     print(f"❌ Failed to import face detector: {e}")
@@ -30,16 +30,11 @@ def test_face_detector():
     
     # Create face detector
     try:
-        detector = create_face_detector()
+        detector = FaceDetector()
         print(f"✅ Face detector created successfully")
-        print(f"   Available: {detector.is_face_detection_available()}")
-        print(f"   Stats: {detector.get_detection_stats()}")
+        # No is_face_detection_available needed, always available if constructed
     except Exception as e:
         print(f"❌ Failed to create face detector: {e}")
-        return False
-    
-    if not detector.is_face_detection_available():
-        print("❌ Face detection is not available")
         return False
     
     # Create a simple test image (you can replace this with a real image path)
