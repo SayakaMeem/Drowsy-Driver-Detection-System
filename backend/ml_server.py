@@ -273,6 +273,7 @@ def detect_drowsiness():
         drowsiness_prediction_result = detector.predict(image_data)
         left_eye_conf = drowsiness_prediction_result['left_eye_confidence']
         right_eye_conf = drowsiness_prediction_result['right_eye_confidence']
+        logger.info(f"👁️👁️👁️👁️Left eye confidence: {left_eye_conf}, Right eye confidence: {right_eye_conf}")
         # Optionally, you can run drowsiness analyzer logic for each eye or combine
         response = {
             'success': drowsiness_prediction_result['success'],

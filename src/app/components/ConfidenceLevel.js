@@ -38,7 +38,7 @@ export default function ConfidenceLevel({ confidence, alertness }) {
   // Update metrics when confidence changes
   useEffect(() => {
     if (confidence > 0) {
-      const newMetrics = mlService.getDetectionMetrics(confidence);
+      const newMetrics = mlService. getDetectionMetrics(confidence);
       // setMetrics(newMetrics); // This state is no longer needed
     }
   }, [confidence]);

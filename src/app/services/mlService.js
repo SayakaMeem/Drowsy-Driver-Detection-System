@@ -194,8 +194,23 @@ class MLService {
 
       if (pythonResponse.ok) {
         const result = await pythonResponse.json();
+        console.log('Python backend response:', result);
+        console.log(result['left_eye_confidence'], result['right_eye_confidence']);
+        let confidence = 0;
+        if( result['left_eye_confidence'] === 0|| result['right_eye_confidence'] === 0) {
+        
+        confidence = (result['left_eye_confidence'] + result['right_eye_confidence']);
+        
+        }
+        else{
+
+          confidence = (result['left_eye_confidence'] + result['right_eye_confidence']) / 2;
+        }
+        console.log('Confidence:', confidence, 'Alertness:', result.alertness);
+
+        // console.log('Confidence:', result.left_eye_confidence, 'Alertness:', result.alertness);
         return {
-          confidence: result.confidence,
+          confidence: confidence,
           alertness: result.alertness,
           metrics: result.metrics || {},
           face_detection: result.face_detection || null
@@ -222,6 +237,7 @@ class MLService {
     }
 
     const result = await response.json();
+    console.log('API response:', result);
     return {
       confidence: result.confidence,
       alertness: this.getAlertnessLevel(result.confidence),
