@@ -18,6 +18,7 @@ import tensorflow as tf
 from tensorflow import keras
 import logging
 import time # Import time for blink analysis
+from typing import Union
 
 # Configure logging at the very beginning to ensure 'logger' is defined globally
 logging.basicConfig(level=logging.INFO, format='%(levelname)s:%(name)s:%(message)s') # Added format for clearer logs
@@ -40,9 +41,72 @@ except ImportError as e:
     DROWSINESS_ANALYZER_AVAILABLE = False
     logger.error(f"Error importing DrowsinessAnalyzer: {e}. Advanced metrics will be limited.")
 
+# The image preprocessing functions, adapted from your Canvas document.
+# This ensures that your inference data is prepared in the exact same
+# way as your training data.
+def convert_to_grayscale_pil(image_pil: Image.Image) -> Image.Image:
+    """
+    Converts a PIL Image object to a single-channel grayscale PIL Image.
+
+    Args:
+        image_pil (Image.Image): The input image in any format (e.g., RGB).
+        
+    Returns:
+        Image.Image: A single-channel grayscale PIL Image ('L' mode).
+    """
+    if image_pil.mode != 'L':
+        return image_pil.convert('L')
+    return image_pil
+
+def preprocess_image_for_grayscale_model(image: Union[np.ndarray, Image.Image], target_size: tuple = (80, 80)) -> np.ndarray:
+    """
+    Prepares an image for a model trained on grayscale data but expecting 3 channels.
+    
+    This function handles the following:
+    1. Converts the input image to a PIL Image if it's a NumPy array.
+    2. Ensures the image is in grayscale ('L' mode).
+    3. Resizes the image to the specified target size.
+    4. Converts the single-channel grayscale image into a 3-channel array (simulating RGB).
+    5. Normalizes the pixel values.
+    6. Adds a batch dimension, resulting in a shape like (1, 80, 80, 3).
+    
+    Args:
+        image (Union[np.ndarray, Image.Image]): The input image.
+        target_size (tuple, optional): The desired (width, height) for the output image.
+                                       Defaults to (80, 80).
+        
+    Returns:
+        np.ndarray: The preprocessed image, ready for model prediction.
+    """
+    # 1. Ensure the input is a PIL Image object
+    if not isinstance(image, Image.Image):
+        image_pil = Image.fromarray(image)
+    else:
+        image_pil = image
+    
+    # 2. Convert to grayscale using the helper function
+    grayscale_image_pil = convert_to_grayscale_pil(image_pil)
+    
+    # 3. Resize the image
+    resized_image_pil = grayscale_image_pil.resize(target_size, Image.Resampling.LANCZOS)
+    
+    # 4. Convert the PIL image to a NumPy array
+    image_np = np.array(resized_image_pil).astype('float32') / 255.0
+    
+    # ⭐ Corrected Step: Convert single-channel grayscale array to 3-channel array. ⭐
+    # This is the key step to match your training data. We replicate the grayscale channel
+    # three times to create an array of shape (height, width, 3).
+    image_np = np.stack([image_np, image_np, image_np], axis=-1)
+    
+    # 5. Add batch dimension
+    image_np = np.expand_dims(image_np, axis=0)
+    
+    return image_np
+
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend integration
+
 
 class DrowsinessDetector:
     def __init__(self):
@@ -53,8 +117,7 @@ class DrowsinessDetector:
         # This is the input shape for the overall system, but the drowsiness model
         # itself expects a specific input size (e.g., 80x80).
         self.input_shape = (224, 224, 3) 
-        # Define the actual input shape for the drowsiness classification model
-        # This is crucial for models like InceptionV3, ResNet50, MobileNet trained on 80x80.
+        # Corrected: Drowsiness model input shape should be 3 channels to match the training data.
         self.drowsiness_model_input_shape = (80, 80, 3)
         
         # Initialize face detector using the factory function from face_detector.py
@@ -143,12 +206,13 @@ class DrowsinessDetector:
                     largest_face = max(faces, key=lambda face: face['box'][2] * face['box'][3])
                     left_eye_pil, right_eye_pil = self.face_detector.crop_eyes(
                         original_pil_image, largest_face, eye_size=(self.drowsiness_model_input_shape[0], self.drowsiness_model_input_shape[1]), padding=0.3)
+                    
                     if left_eye_pil is not None and right_eye_pil is not None:
-                        left_eye_img = np.array(left_eye_pil).astype('float32') / 255.0
-                        right_eye_img = np.array(right_eye_pil).astype('float32') / 255.0
-                        left_eye_img = np.expand_dims(left_eye_img, axis=0)
-                        right_eye_img = np.expand_dims(right_eye_img, axis=0)
-                        logger.info(f"Eyes cropped successfully to {self.drowsiness_model_input_shape}")
+                        # ⭐ Replaced manual preprocessing with the imported function ⭐
+                        left_eye_img = preprocess_image_for_grayscale_model(left_eye_pil, target_size=(self.drowsiness_model_input_shape[0], self.drowsiness_model_input_shape[1]))
+                        right_eye_img = preprocess_image_for_grayscale_model(right_eye_pil, target_size=(self.drowsiness_model_input_shape[0], self.drowsiness_model_input_shape[1]))
+                        
+                        logger.info(f"Eyes cropped and preprocessed successfully to {left_eye_img.shape}")
                     else:
                         logger.warning("Eye cropping failed.")
                 else:
