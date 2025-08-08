@@ -3,11 +3,19 @@
 import { useState, useEffect, useRef } from 'react';
 import mlService from '../services/mlService';
 
-export default function ConfidenceLevel({ confidence, alertness }) {
+export default function ConfidenceLevel({ confidence, alertness, leftEyeConfidence, rightEyeConfidence }) {
   const [displayConfidence, setDisplayConfidence] = useState(confidence);
   const [displayAlertness, setDisplayAlertness] = useState(alertness);
   const updateTimeoutRef = useRef(null);
   const lastUpdateRef = useRef({ confidence: 0, alertness: '' });
+  const[newMetrics, setNewMetrics] = useState({
+    eyeClosure: leftEyeConfidence || 0,
+    blinkRate: 0,
+    headPosition: 'Unknown',
+    yawnCount: 0,
+    leftEyeConfidence: leftEyeConfidence || 0,
+    rightEyeConfidence: rightEyeConfidence || 0
+  });
 
   useEffect(() => {
     // Clear existing timeout
@@ -38,7 +46,8 @@ export default function ConfidenceLevel({ confidence, alertness }) {
   // Update metrics when confidence changes
   useEffect(() => {
     if (confidence > 0) {
-      const newMetrics = mlService. getDetectionMetrics(confidence);
+       setNewMetrics(mlService. getDetectionMetrics(confidence));
+       console.log('Updated metrics:', newMetrics);
       // setMetrics(newMetrics); // This state is no longer needed
     }
   }, [confidence]);
@@ -115,30 +124,30 @@ export default function ConfidenceLevel({ confidence, alertness }) {
         <h4 className="font-semibold text-gray-800">Detection Metrics</h4>
                  <div className="grid grid-cols-2 gap-4 text-sm">
            <div>
-             <span className="text-gray-600">Eye Closure:</span>
-             <span className="float-right font-medium text-gray-600">
-               {/* metrics?.eyeClosure || 'Unknown' */}
+             <span className="text-gray-600"> Eye Closure:</span>
+             <span className="floatright font-medium text-gray-600">
+               {newMetrics.eyeClosure || 'Unknown' }
                {/* This state is no longer needed */}
              </span>
            </div>
            <div>
              <span className="text-gray-600">Blink Rate:</span>
              <span className="float-right font-medium text-gray-600">
-               {/* metrics?.blinkRate || 0 }
+               { newMetrics.blinkRate || 0 }
                {/* This state is no longer needed */}
              </span>
            </div>
            <div>
              <span className="text-gray-600">Head Position:</span>
              <span className="float-right font-medium text-gray-600">
-               {/* metrics?.headPosition || 'Unknown' */}
+               {newMetrics.headPosition || 'Unknown' }
                {/* This state is no longer needed */}
              </span>
            </div>
            <div>
              <span className="text-gray-600">Yawn Count:</span>
              <span className="float-right font-medium text-gray-600">
-               {/* metrics?.yawnCount || 0 */}
+               { newMetrics.yawnCount || 0 }
                {/* This state is no longer needed */}
              </span>
            </div>

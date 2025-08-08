@@ -129,7 +129,7 @@ class MLService {
       // Try to use backend API first, fallback to simulation
       try {
         const result = await this.callBackendAPI(imageData);
-        
+        console.log('new function API response:', result);
         // Apply smoothing to the confidence
         const smoothedConfidence = this.smoothConfidence(result.confidence);
         
@@ -212,6 +212,8 @@ class MLService {
         return {
           confidence: confidence,
           alertness: result.alertness,
+          left_eye_confidence: result.left_eye_confidence,
+          right_eye_confidence: result.right_eye_confidence,
           metrics: result.metrics || {},
           face_detection: result.face_detection || null
         };
@@ -368,7 +370,7 @@ class MLService {
         const result = await this.processFrame(videoElement);
         
         if (this.onConfidenceUpdate) {
-          this.onConfidenceUpdate(result.confidence, result.alertness);
+          this.onConfidenceUpdate(result.confidence, result.alertness, result.left_eye_confidence, result.right_eye_confidence);
         }
         
         // Check for alerts

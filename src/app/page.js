@@ -10,9 +10,11 @@ export default function Home() {
   const [isDetecting, setIsDetecting] = useState(false);
   const [confidence, setConfidence] = useState(0);
   const [alertness, setAlertness] = useState('');
+  const [leftEyeConfidence, setLeftEyeConfidence] = useState(0);
+  const [rightEyeConfidence, setRightEyeConfidence] = useState(0);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  const handleConfidenceUpdate = (newConfidence, newAlertness) => {
+  const handleConfidenceUpdate = (newConfidence, newAlertness, left_eye_confidence, right_eye_confidence) => {
     setConfidence(newConfidence);
     setAlertness(newAlertness);
   };
@@ -64,7 +66,7 @@ export default function Home() {
               
               {/* Confidence Level */}
               <div className="mb-6">
-                <ConfidenceLevel confidence={confidence} alertness={alertness} />
+                <ConfidenceLevel confidence={confidence} alertness={alertness} leftEyeConfidence={leftEyeConfidence} rightEyeConfidence={rightEyeConfidence} />
               </div>
 
               {/* Control Buttons */}
