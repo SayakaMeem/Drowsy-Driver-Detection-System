@@ -65,7 +65,7 @@ export default function CameraFeed({ isDetecting, onConfidenceUpdate }) {
     }
   };
 
-  const stopCamera = () => {
+  const stopCamera = async () => {
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
       setStream(null);
@@ -74,7 +74,7 @@ export default function CameraFeed({ isDetecting, onConfidenceUpdate }) {
       videoRef.current.srcObject = null;
     }
     // Stop ML detection
-    mlService.stopDetection();
+    await mlService.stopDetection();
     // Clear face detection data
     setFaceDetection(null);
   };
@@ -89,7 +89,10 @@ export default function CameraFeed({ isDetecting, onConfidenceUpdate }) {
   // Start ML detection when video is ready and detecting is active
   useEffect(() => {
     if (isDetecting && stream && videoRef.current && isModelLoaded) {
-      mlService.startDetection(videoRef.current, onConfidenceUpdate);
+      const startDetection = async () => {
+        await mlService.startDetection(videoRef.current, onConfidenceUpdate);
+      };
+      startDetection();
     }
   }, [isDetecting, stream, isModelLoaded, onConfidenceUpdate]);
 

@@ -145,11 +145,11 @@ export default function ConfidenceLevel({ confidence, alertness, leftEyeConfiden
              </span>
            </div>
            <div>
-             <span className="text-gray-600">Yawn Count:</span>
-             <span className="float-right font-medium text-gray-600">
-               { newMetrics.yawnCount || 0 }
+             {/* <span className="text-gray-600">Yawn Count:</span> */}
+             {/* <span className="float-right font-medium text-gray-600"> */}
+               {/* { newMetrics.yawnCount || 0 } */}
                {/* This state is no longer needed */}
-             </span>
+             {/* </span> */}
            </div>
          </div>
       </div>

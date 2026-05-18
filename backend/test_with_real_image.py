@@ -25,7 +25,9 @@ def download_test_image():
     """Download a test image with faces"""
     try:
         # Download a sample image with faces (you can replace this URL)
-        url = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=300&fit=crop"
+        # url = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=300&fit=crop"
+        # url = "https://www.bing.com/images/search?view=detailV2&ccid=FRWlQ2Iy&id=DC4BF90A2C756C2980567441DDB0BECADC56B2AA&thid=OIP.FRWlQ2Iy1gUjlJMizoTUDAHaFc&mediaurl=https%3a%2f%2fc8.alamy.com%2fcomp%2f2GA8RA4%2fclose-up-of-tired-young-woman-yawning-feeling-fatigue-sleepy-face-early-morning-standing-in-striped-t-shirt-over-white-background-2GA8RA4.jpg&cdnurl=https%3a%2f%2fth.bing.com%2fth%2fid%2fR.1515a5436232d60523949322ce84d40c%3frik%3dqrJW3Mq%252bsN1BdA%26pid%3dImgRaw%26r%3d0&exph=956&expw=1300&q=drowsy+face&simid=608010561044696067&FORM=IRPRST&ck=2B66DDFFB93F64CA2B00B522F25BCEAB&selectedIndex=3&itb=0?w=400&h=300&fit=crop"
+        url="https://th.bing.com/th/id/R.d1aa466eeb210bb61d6f8b91a79e795f?rik=L8jkATZIR0vH9A&riu=http%3a%2f%2fdreamicus.com%2fdata%2fface%2fface-01.jpg&ehk=%2f9OyKhaPsQIUGrTyjqEQkoFdrb9rczl%2b%2f7JLFfCihGQ%3d&risl=&pid=ImgRaw&r=0"
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             image = Image.open(BytesIO(response.content))

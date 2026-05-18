@@ -16,6 +16,12 @@ class MLService {
     this.smoothingFactor = 0.7; // Weight for exponential smoothing
     this.lastSmoothedConfidence = null;
     this.minConfidenceChange = 2; // Minimum change to update UI
+    
+    // Database storage properties
+    this.currentSessionId = null;
+    this.sessionStartTime = null;
+    this.detectionCount = 0;
+    this.alertCount = 0;
   }
 
   // Initialize the ML model
@@ -196,24 +202,25 @@ class MLService {
         const result = await pythonResponse.json();
         console.log('Python backend response:', result);
         console.log(result['left_eye_confidence'], result['right_eye_confidence']);
-        let confidence = 0;
-        if( result['left_eye_confidence'] === 0|| result['right_eye_confidence'] === 0) {
         
-        confidence = (result['left_eye_confidence'] + result['right_eye_confidence']);
+        // Use the average confidence from the backend if available, otherwise calculate it
+        let confidence = result.average_confidence || 0;
+        if (confidence === 0) {
+          if (result['left_eye_confidence'] === 0 || result['right_eye_confidence'] === 0) {
+            confidence = (result['left_eye_confidence'] + result['right_eye_confidence']);
+          } else {
+            confidence = (result['left_eye_confidence'] + result['right_eye_confidence']) / 2;
+          }
+        }
         
-        }
-        else{
-
-          confidence = (result['left_eye_confidence'] + result['right_eye_confidence']) / 2;
-        }
         console.log('Confidence:', confidence, 'Alertness:', result.alertness);
 
-        // console.log('Confidence:', result.left_eye_confidence, 'Alertness:', result.alertness);
         return {
           confidence: confidence,
           alertness: result.alertness,
           left_eye_confidence: result.left_eye_confidence,
           right_eye_confidence: result.right_eye_confidence,
+          model_used: result.model_used,
           metrics: result.metrics || {},
           face_detection: result.face_detection || null
         };
@@ -357,17 +364,23 @@ class MLService {
   }
 
   // Start continuous detection
-  startDetection(videoElement, onUpdate) {
+  async startDetection(videoElement, onUpdate) {
     if (this.detectionInterval) {
       this.stopDetection();
     }
 
     this.onConfidenceUpdate = onUpdate;
     
+    // Create new session
+    await this.createSession();
+    
     // Process frames every 500ms (adjust based on your needs)
     this.detectionInterval = setInterval(async () => {
       if (videoElement && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
         const result = await this.processFrame(videoElement);
+        
+        // Store detection record in database
+        await this.storeDetectionRecord(result);
         
         if (this.onConfidenceUpdate) {
           this.onConfidenceUpdate(result.confidence, result.alertness, result.left_eye_confidence, result.right_eye_confidence);
@@ -375,8 +388,11 @@ class MLService {
         
         // Check for alerts
         if (this.shouldTriggerAlert(result.confidence)) {
+          const alertMessage = this.getAlertMessage(result.confidence);
+          await this.storeAlert(result.confidence, alertMessage);
+          
           if (this.onAlertUpdate) {
-            this.onAlertUpdate(this.getAlertMessage(result.confidence));
+            this.onAlertUpdate(alertMessage);
           }
         }
       }
@@ -384,12 +400,17 @@ class MLService {
   }
 
   // Stop continuous detection
-  stopDetection() {
+  async stopDetection() {
     if (this.detectionInterval) {
       clearInterval(this.detectionInterval);
       this.detectionInterval = null;
     }
     this.onConfidenceUpdate = null;
+    
+    // End current session
+    if (this.currentSessionId) {
+      await this.endSession();
+    }
   }
 
   // Get detection metrics
@@ -441,6 +462,126 @@ class MLService {
   // Add face detection callback setter
   setFaceDetectionCallback(callback) {
     this.onFaceDetectionUpdate = callback;
+  }
+
+  // Database storage methods
+  async createSession() {
+    try {
+      this.currentSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      this.sessionStartTime = new Date();
+      this.detectionCount = 0;
+      this.alertCount = 0;
+      
+      const response = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: this.currentSessionId })
+      });
+      
+      if (!response.ok) {
+        console.warn('Failed to create session in database');
+      }
+    } catch (error) {
+      console.warn('Error creating session:', error);
+    }
+  }
+
+  async endSession() {
+    try {
+      // Update session end time
+      const response = await fetch(`/api/sessions/${this.currentSessionId}/end`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (!response.ok) {
+        console.warn('Failed to end session in database');
+      }
+      
+      this.currentSessionId = null;
+      this.sessionStartTime = null;
+    } catch (error) {
+      console.warn('Error ending session:', error);
+    }
+  }
+
+  async storeDetectionRecord(result) {
+    if (!this.currentSessionId) return;
+    
+    try {
+      const metrics = this.getDetectionMetrics(result.confidence);
+      
+      const recordData = {
+        sessionId: this.currentSessionId,
+        leftEyeConfidence: result.left_eye_confidence || 0,
+        rightEyeConfidence: result.right_eye_confidence || 0,
+        averageConfidence: result.confidence,
+        alertnessLevel: result.alertness,
+        blinkRate: metrics.blinkRate,
+        eyeClosureStatus: metrics.eyeClosure,
+        headPosition: metrics.headPosition,
+        yawnCount: metrics.yawnCount,
+        eyeAspectRatio: metrics.eyeAspectRatio,
+        mouthAspectRatio: metrics.mouthAspectRatio,
+        pupilDiameter: metrics.pupilDiameter,
+        eyeMovementStatus: metrics.eyeMovement,
+        faceDetected: result.faceDetection ? result.faceDetection.faces_detected > 0 : false,
+        modelUsed: result.model_used || 'unknown'
+      };
+      
+      const response = await fetch('/api/records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(recordData)
+      });
+      
+      if (response.ok) {
+        this.detectionCount++;
+      } else {
+        console.warn('Failed to store detection record');
+      }
+    } catch (error) {
+      console.warn('Error storing detection record:', error);
+    }
+  }
+
+  async storeAlert(confidence, message) {
+    if (!this.currentSessionId) return;
+    
+    try {
+      let alertType = 'caution';
+      let severity = 'caution';
+      
+      if (confidence < 20) {
+        alertType = 'critical';
+        severity = 'critical';
+      } else if (confidence < 40) {
+        alertType = 'warning';
+        severity = 'warning';
+      }
+      
+      const alertData = {
+        sessionId: this.currentSessionId,
+        alertType: alertType,
+        confidenceLevel: confidence,
+        message: message,
+        severity: severity
+      };
+      
+      const response = await fetch('/api/alerts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(alertData)
+      });
+      
+      if (response.ok) {
+        this.alertCount++;
+      } else {
+        console.warn('Failed to store alert');
+      }
+    } catch (error) {
+      console.warn('Error storing alert:', error);
+    }
   }
 }
 

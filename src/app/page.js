@@ -83,11 +83,11 @@ export default function Home() {
                 </button>
                 
                 <div className="grid grid-cols-2 gap-4">
-                  <button className="py-3 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors">
-                    Settings
-                  </button>
+                  <a href="/dashboard" className="py-3 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors text-center">
+                    Dashboard
+                  </a>
                   <button className="py-3 px-4 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors">
-                    History
+                    Settings
                   </button>
                 </div>
               </div>

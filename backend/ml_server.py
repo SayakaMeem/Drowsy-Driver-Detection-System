@@ -339,10 +339,27 @@ def detect_drowsiness():
         right_eye_conf = drowsiness_prediction_result['right_eye_confidence']
         logger.info(f"👁️👁️👁️👁️Left eye confidence: {left_eye_conf}, Right eye confidence: {right_eye_conf}")
         # Optionally, you can run drowsiness analyzer logic for each eye or combine
+        # Calculate average confidence
+        avg_confidence = (left_eye_conf + right_eye_conf) / 2 if left_eye_conf > 0 and right_eye_conf > 0 else (left_eye_conf + right_eye_conf)
+        
+        # Determine alertness level
+        if avg_confidence >= 80:
+            alertness_level = 'Very Alert'
+        elif avg_confidence >= 60:
+            alertness_level = 'Alert'
+        elif avg_confidence >= 40:
+            alertness_level = 'Slightly Drowsy'
+        elif avg_confidence >= 20:
+            alertness_level = 'Drowsy'
+        else:
+            alertness_level = 'Very Drowsy'
+        
         response = {
             'success': drowsiness_prediction_result['success'],
             'left_eye_confidence': left_eye_conf,
             'right_eye_confidence': right_eye_conf,
+            'average_confidence': avg_confidence,
+            'alertness': alertness_level,
             'left_eye_prediction': drowsiness_prediction_result['left_eye_prediction'],
             'right_eye_prediction': drowsiness_prediction_result['right_eye_prediction'],
             'model_used': drowsiness_prediction_result['model_used'],
