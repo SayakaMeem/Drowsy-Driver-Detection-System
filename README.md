@@ -7,7 +7,7 @@
 ![TensorFlow](https://img.shields.io/badge/TensorFlow-CNN-FF6F00?style=flat&logo=tensorflow)
 ![OpenCV](https://img.shields.io/badge/OpenCV-Computer_Vision-5C3EE8?style=flat&logo=opencv)
 
-**Live Demo:** [Add your Vercel link here]
+**Live Demo:** 
 **GitHub:** https://github.com/SayakaMeem/Drowsy-Driver-Detection-System
 
 ---
